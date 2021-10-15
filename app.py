@@ -1,96 +1,110 @@
-from datetime import datetime
+import PIL
 from tensorflow import keras
 from keras.models import load_model
-from PIL import Image
+from PIL import Image, ImageGrab
 import numpy as np
+from tkinter import *
+import tkinter as tk
+import win32gui
 import cv2
 import os
 from datetime import datetime
 
 model = load_model('digits_recognizer.h5')
 
+
+def get_handle():
+    toplist = []
+    windows_list = []
+    canvas = 0
+    def enum_win(hwnd, result):
+        win_text = win32gui.GetWindowText(hwnd)
+        windows_list.append((hwnd, win_text))
+
+    win32gui.EnumWindows(enum_win, toplist)
+    for (hwnd, win_text) in windows_list:
+        if 'tk' == win_text:
+            canvas = hwnd
+
+    return canvas            
+
 def preprocess_img(path):
-    img = cv2.imread(path)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    # seperate the background elements from the foreground elements
-    # ret, thresh = cv2.threshold(img.copy(), 75, 255, cv2.THRESH_BINARY_INV)
     
-    # contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    # cv2.drawContours(img, contours, -1, (0, 255, 0), 3)
-
-    # for c in contours:
-    #     x, y, w, h = cv2.boundingRect(c)
-    #     #create a rectangle around the digit
-    #     cv2.rectangle(img, (x,y), (x+w, y+h), color=(0, 255, 0), thickness = 2) 
-    #     # cropping the image (digit only)
-    #     digit = thresh[y:y+h, x:x+w]
-    #     #digit = cv2.resize(digit, (18, 18))
-    #     # pad the image with 5 pixels in each side to reach 28x28
-    #     digit = np.pad(digit, ((5,5), (5,5)), "constant", constant_values=0)
-    
-    digit = cv2.resize(img, (28, 28))
-    #digit = (255-digit)
-    # cv2.imshow('test', digit)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
-
-    return digit
-
-cap = cv2.VideoCapture(0)
-w, h = 300, 300
-cap.set(3, w)
-cap.set(4, h)
-
-interval = datetime.now().timestamp() * 1000
-counter = 0
-
-while cap.isOpened():
-    t = datetime.now().timestamp() * 1000
-    success, img = cap.read()
-    cv2.imshow('capture', img)
-    
-    if t > interval + 5000:
+        img = cv2.imread(path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        #seperate the background elements from the foreground elements
+        _, thresh = cv2.threshold(img.copy(), 75, 255, cv2.THRESH_BINARY_INV)
         
-        cv2.imwrite('rt.jpg', img)
-        
-        prp = preprocess_img('rt.jpg')
-        cv2.imwrite('sample.jpg', prp)
-        prp = prp.reshape((1, 28, 28, 1))
-        prp = prp / 255.0
-        preds = model.predict(prp)[0]
-        print(np.argmax(preds), max(preds))
-        os.remove('rt.jpg')
-        interval = t
-        counter += 1
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(img, contours, -1, (0, 255, 0), 3)
 
-    if cv2.waitKey(10) & 0xFF == ord('q'):
-        break    
+        for c in contours:
+            x, y, w, h = cv2.boundingRect(c)
+            #create a rectangle around the digit
+            cv2.rectangle(img, (x,y), (x+w, y+h), color=(0, 255, 0), thickness = 2) 
+            # cropping the image (digit only)
+            digit = thresh[y:y+h, x:x+w]
+            resized = cv2.resize(digit, (18, 18))
+            # pad the image with 5 pixels in each side to reach 28x28
+            digit = np.pad(resized, ((5,5), (5,5)), "constant", constant_values=0)
+            preprocessed_digit = (digit)
 
-# for i in range(9):
-#     sample = preprocess_img("test" + str(i) + '.png')
-#     sample = sample.reshape((1, 28, 28, 1))
-#     sample = sample / 255.0
+        return preprocessed_digit
 
-#     preds = model.predict(sample)[0]
-#     print(i, np.argmax(preds), max(preds))
+   
 
-# print('images with smooth background')    
+def predict_handwritten_digit(img):
+    path = "predic.jpg"
+    cv2.imwrite(path, img)
+    sample = preprocess_img(path)
+    sample = sample.reshape((1, 28, 28, 1))
+    sample = sample / 255.0
+    preds = model.predict(sample)[0]
+    digit, acc = np.argmax(preds), max(preds)
+    os.remove(path)
 
-# for i in [0, 3, 4, 5, 6, 7, 8]:
-#     sample = preprocess_img("valid" + str(i) + '.png')
-#     sample = sample.reshape((1, 28, 28, 1))
-#     sample = sample / 255.0
+    return digit, acc
 
-#     preds = model.predict(sample)[0]
-#     print(i, np.argmax(preds), max(preds))    
+class App(tk.Tk):
+    def __init__(self):
+        tk.Tk.__init__(self)
+        self.x = self.y = 0
+        self.canvas = tk.Canvas(self, width=300, height=300, bg="white", cursor="cross")
+        self.label = tk.Label(self, text="Draw a digit", font=("Helvetica", 28))
+        self.classify_btn = tk.Button(self, text = "Recognize", command=self.predict_digit)
+        self.button_clear = tk.Button(self, text = "Clear", command=self.clear_all)
+        # grid structure
+        self.canvas.grid(row=0, column=0, pady=2, sticky=W)
+        self.label.grid(row=0, column=1, pady=2, padx=2)
+        self.classify_btn.grid(row=1, column=1, pady=2, padx=2)
+        self.button_clear.grid(row=1, column=0, pady=2)
+        self.canvas.bind("<B1-Motion>", self.draw_lines)
 
-# for i in range(9):
-#     test = preprocess_img('test' + str(i) + '.png')
-#     cv2.imwrite('test' + str(i) + '.png', test)
-# test = preprocess_img('test2.png')
-# cv2.imwrite('rip.jpg', test)
+    def clear_all(self):
+        self.canvas.delete("all")
 
-cap.release()
-cv2.destroyAllWindows()
+    def predict_digit(self):
+        HWND = self.canvas.winfo_id()
+        hwnd = get_handle()
+        rect = win32gui.GetWindowRect(HWND)
+        x1, y1, x2, y2 = rect
+        img = ImageGrab.grab((x1+40, y1+40, x2+100, y2+100))
+        #print(type(img))
+        # convert to ndarray
+        img = np.asarray(img)
+        cv2.imwrite("ape.jpg", img)
+        #print(type(img))
+        digit, acc =  predict_handwritten_digit(img)       
+        self.label.configure(text = "prediction: " + str(digit) + "\nconfidence: " + str(int(acc*100)) + " %")
 
+    def draw_lines(self, event):
+        self.x = event.x
+        self.y = event.y
+        r = 8
+        self.canvas.create_oval(self.x-r, self.y-r, self.x+r, self.y+r, fill="black") 
 
+# test = preprocess_img('ape.jpg')
+# cv2.imwrite('ape.jpg', test)
+
+app = App()
+mainloop()           
